@@ -1,0 +1,121 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "snapscene runner config",
+  "type": "object",
+  "required": ["scheme", "scenarios"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "scheme": {
+      "type": "string",
+      "description": "URL scheme (e.g. 'fpg')"
+    },
+    "homeRoute": {
+      "type": "string",
+      "description": "Deep link path to open (e.g. 'home'). Produces scheme://homeRoute?screenshotParams=...",
+      "default": "index"
+    },
+    "scenarios": {
+      "type": "array",
+      "description": "Scenarios to capture",
+      "items": {
+        "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/ScenarioConfig" }]
+      }
+    },
+    "matrix": {
+      "type": "object",
+      "description": "Param variations to iterate over (cartesian product). Each key creates a subfolder level.",
+      "additionalProperties": {
+        "type": "array",
+        "items": { "type": "string" }
+      }
+    },
+    "outputDir": {
+      "type": "string",
+      "description": "Output directory for screenshots",
+      "default": "/tmp/snapscene"
+    },
+    "copyTo": {
+      "type": "string",
+      "description": "Copy screenshots to this directory after completion"
+    },
+    "devices": {
+      "type": "array",
+      "description": "Device names to capture on (fuzzy matched against available simulators)",
+      "items": {
+        "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/DeviceConfig" }]
+      }
+    },
+    "globalParams": {
+      "type": "object",
+      "description": "Extra params sent with every scenario",
+      "additionalProperties": { "type": "string" }
+    },
+    "bundleId": {
+      "type": "string",
+      "description": "App bundle ID (used for killBetweenPermutations)"
+    },
+    "killBetweenPermutations": {
+      "type": "boolean",
+      "description": "Kill and relaunch the app between matrix permutations (requires bundleId)",
+      "default": true
+    },
+    "captureDelay": {
+      "type": "number",
+      "description": "Delay in ms after done() before taking the screenshot, for animations to settle (default: 200)",
+      "default": 200
+    },
+    "password": {
+      "type": "string",
+      "description": "Optional password (must match the password configured in the app)"
+    },
+    "waitAfterPermutationChange": {
+      "type": "number",
+      "description": "Extra delay in ms after globalSetup re-runs on permutation change, for async data to settle (default: 0)",
+      "default": 0
+    }
+  },
+  "$defs": {
+    "DeviceConfig": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Device name (fuzzy matched against available simulators)"
+        },
+        "extraWait": {
+          "type": "number",
+          "description": "Extra wait in ms after each screenshot on this device (default: 0)"
+        }
+      }
+    },
+    "ScenarioConfig": {
+      "type": "object",
+      "required": ["name"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Scenario name (passed in screenshotParams)"
+        },
+        "params": {
+          "type": "object",
+          "description": "Extra params merged into screenshotParams",
+          "additionalProperties": { "type": "string" }
+        },
+        "timeout": {
+          "type": "number",
+          "description": "Timeout in ms waiting for done() (default: 30000)"
+        },
+        "filePrefix": {
+          "type": "string",
+          "description": "Numbered prefix for sorted filenames (e.g. '01')"
+        }
+      }
+    }
+  }
+}
