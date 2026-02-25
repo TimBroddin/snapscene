@@ -224,23 +224,43 @@ if (getScreenshotState().active) {
 {
   "$schema": "./node_modules/snapscene/schema.json",
   "scheme": "myapp",
+  "homeRoute": "home",
   "scenarios": [
     { "name": "home", "filePrefix": "01" },
     { "name": "game", "filePrefix": "02" },
     { "name": "settings", "filePrefix": "03" }
   ],
   "matrix": {
-    "locale": ["en", "de", "fr", "es"]
+    "locale": ["en-US", "de-DE", "fr-FR", "es-ES"]
   },
-  "devices": ["iPhone 16 Pro Max", "iPad Pro 13-inch (M4)"],
+  "devices": [
+    "iPhone 17 Pro",
+    { "name": "iPad Pro 13-inch (M5)", "extraWait": 3000 }
+  ],
   "bundleId": "com.example.myapp",
   "copyTo": "./screenshots",
   "killBetweenPermutations": false,
-  "waitAfterPermutationChange": 5000
+  "waitAfterPermutationChange": 15000,
+  "captureDelay": 1500
 }
 ```
 
-The `matrix` creates a cartesian product — every scenario is captured for every combination of matrix values. Each matrix key becomes a subfolder in the output.
+**What each field does:**
+
+- **`$schema`** — Points to the JSON schema for editor autocompletion and validation.
+- **`scheme`** *(required)* — Your app's URL scheme (e.g. `"myapp"` produces `myapp://home?screenshotParams=...`).
+- **`homeRoute`** — Deep link path the runner opens (default: `"index"`). This is the route that receives the screenshot deep link — typically your app's entry point.
+- **`scenarios`** *(required)* — Array of scenario names or objects. Each object can have `name`, `filePrefix` (for sorted filenames like `01-home.png`), `params` (extra params merged into the deep link), and `timeout` (override per scenario).
+- **`matrix`** — Cartesian product of param variations. Every scenario is captured for every combination. Each key becomes a subfolder in the output and is passed as a param to `globalSetup`. Example: 3 scenarios × 4 locales = 12 screenshots per device.
+- **`devices`** — Simulator names, fuzzy matched against available simulators. Can be strings or objects with `name` and `extraWait` (extra delay in ms after each screenshot on slower devices like iPads).
+- **`bundleId`** — Your app's bundle ID. Required when `killBetweenPermutations` is `true`.
+- **`outputDir`** — Where screenshots are written (default: `/tmp/snapscene`).
+- **`copyTo`** — Copy the final output to this directory after completion. Useful for keeping screenshots in your repo.
+- **`killBetweenPermutations`** — Kill and relaunch the app between matrix permutation changes (default: `true`). Set to `false` to keep the app running and re-run `globalSetup` via a special deep link instead — much faster but requires your `globalSetup` to handle state transitions cleanly.
+- **`waitAfterPermutationChange`** — Extra delay in ms after `globalSetup` re-runs on permutation change (default: `0`). Useful when async side-effects need time to settle (e.g. React Query refetches after a locale change).
+- **`captureDelay`** — Delay in ms after `done()` / `doneAfter` before taking the screenshot (default: `200`). Increase if animations need time to settle.
+- **`password`** — Shared secret for deep link validation. Must match the password set in `configure()` on the app side. See [Password protection](#password-protection).
+- **`globalParams`** — Extra params sent with every scenario deep link. Merged into `params` in your setup callbacks.
 
 ### Step 5: Run
 
@@ -308,19 +328,21 @@ interface ScreenshotContext<TContext> {
 
 ### Runner config
 
-| Option                       | Default          | Description                                                                             |
-| ---------------------------- | ---------------- | --------------------------------------------------------------------------------------- |
-| `scheme`                     | (required)       | URL scheme for deep links                                                               |
-| `scenarios`                  | (required)       | Array of scenario names or `{ name, filePrefix, params, timeout }`                      |
-| `matrix`                     | `{}`             | Cartesian product of param variations (each key = subfolder)                            |
-| `devices`                    | `[]`             | Simulator names (fuzzy matched against available simulators)                            |
-| `outputDir`                  | `/tmp/snapscene` | Where screenshots are written                                                           |
-| `copyTo`                     | -                | Copy final output to this directory                                                     |
-| `bundleId`                   | -                | App bundle ID (needed for `killBetweenPermutations`)                                    |
-| `killBetweenPermutations`    | `true`           | Kill and relaunch app between matrix permutation changes                                |
-| `waitAfterPermutationChange` | `0`              | Extra delay (ms) after globalSetup re-runs on permutation change                        |
-| `captureDelay`               | `200`            | Delay (ms) before capture, only for `doneAfter` auto-done (skipped for manual `done()`) |
-| `password`                   | -                | Shared secret for deep link validation (see below)                                      |
+| Option                       | Default          | Description                                                                              |
+| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------- |
+| `scheme`                     | (required)       | URL scheme for deep links                                                                |
+| `homeRoute`                  | `"index"`        | Deep link path to open (produces `scheme://homeRoute?screenshotParams=...`)              |
+| `scenarios`                  | (required)       | Array of scenario names or `{ name, filePrefix, params, timeout }`                       |
+| `matrix`                     | `{}`             | Cartesian product of param variations (each key = subfolder)                             |
+| `devices`                    | `[]`             | Simulator names or `{ name, extraWait }` (fuzzy matched against available simulators)    |
+| `globalParams`               | `{}`             | Extra params sent with every scenario deep link                                          |
+| `outputDir`                  | `/tmp/snapscene` | Where screenshots are written                                                            |
+| `copyTo`                     | -                | Copy final output to this directory                                                      |
+| `bundleId`                   | -                | App bundle ID (needed for `killBetweenPermutations`)                                     |
+| `killBetweenPermutations`    | `true`           | Kill and relaunch app between matrix permutation changes                                 |
+| `waitAfterPermutationChange` | `0`              | Extra delay (ms) after globalSetup re-runs on permutation change                         |
+| `captureDelay`               | `200`            | Delay (ms) before capture after `done()` / `doneAfter`, for animations to settle         |
+| `password`                   | -                | Shared secret for deep link validation (see below)                                       |
 
 ### Permutation changes
 
