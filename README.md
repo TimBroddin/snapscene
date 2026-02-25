@@ -7,8 +7,14 @@ Snapscene coordinates between a **Bun CLI runner** that drives iOS simulators an
 ## Install
 
 ```bash
-bun add -d snapscene
+bun add snapscene
+# or
+npm install snapscene
+# or
+yarn add snapscene
 ```
+
+> **Note:** The app-side hooks work with any bundler (Metro, etc.), but the CLI runner requires [Bun](https://bun.sh) to drive the simulators.
 
 ## How it works
 
