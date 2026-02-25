@@ -1,0 +1,23 @@
+{
+  "name": "snapscene",
+  "version": "0.1.0",
+  "license": "MIT",
+  "description": "Automated App Store screenshot capture for Expo apps",
+  "keywords": ["expo", "react-native", "screenshots", "app-store", "automation"],
+  "repository": "github:timbroddin/snapscene",
+  "bin": {
+    "snapscene": "cli/bin.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./runner": "./cli/runner.ts"
+  },
+  "main": "src/index.ts",
+  "files": ["src", "cli", "schema.json", "README.md", "LICENSE"],
+  "peerDependencies": {
+    "expo-linking": ">=7.0.0",
+    "expo-router": ">=4.0.0",
+    "react": ">=18.0.0",
+    "react-native": ">=0.76.0"
+  }
+}
