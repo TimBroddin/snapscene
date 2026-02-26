@@ -1,20 +1,31 @@
 # snapscene
 
-Automated App Store screenshot capture for React Native apps with Expo Router.
+Automated App Store screenshot capture for Expo apps.
 
-Snapscene coordinates between a **Bun CLI runner** that drives iOS simulators and **React hooks** inside your app that signal when each screen is ready to capture.
+I ship several iOS apps and got tired of the screenshot workflow. Taking them manually means clicking through every screen, on every device, in every language — for every release. I tried Maestro, but fighting YAML configs to get app state right (mocking purchases, switching locales, loading test data) felt like the wrong abstraction. My app already knows how to set itself up — it just needed a way to be told _when_.
 
-## Install
+Snapscene flips the approach: a **Bun CLI runner** drives iOS simulators via deep links, and **React hooks** inside your app handle setup and signal when each screen is ready. You write your screenshot scenarios in TypeScript, right next to your app code, using the same stores and dispatchers you already have.
+
+3 screens, 4 locales, 2 devices = **24 screenshots**, fully automated.
 
 ```bash
-bun add snapscene
-# or
-npm install snapscene
-# or
-yarn add snapscene
+bunx snapscene screenshots.config.json
 ```
 
-> **Note:** The app-side hooks work with any bundler (Metro, etc.), but the CLI runner requires [Bun](https://bun.sh) to drive the simulators.
+```
+screenshots/
+  iphone-17-pro/
+    en/
+      01-home.png
+      02-game.png
+      03-settings.png
+    de/
+      01-home.png
+      ...
+  ipad-pro-13-inch-m5/
+    en/
+      ...
+```
 
 ## How it works
 
@@ -35,72 +46,50 @@ Runner (Bun)                              App (React Native)
   next scenario...
 ```
 
-The runner opens a deep link on the simulator. The app receives it via `useScreenshotDeepLink`, which runs your setup code (dispatching Redux actions, loading mock data, etc.), then navigates to the scenario's route. Once the screen is ready, it signals back to the runner via an HTTP callback. The runner takes a screenshot and moves on to the next scenario.
+The runner opens a deep link on the simulator. Your app receives it, runs your setup code (dispatching Redux actions, loading mock data, etc.), navigates to the route, and signals back when the screen is ready. The runner takes a screenshot and moves on.
 
-## Integration guide
+## Install
 
-There are three pieces to wire up: a **scenario file**, the **deep link hook** in your root layout, and optional **readiness signals** in individual screens.
-
-### The `ctx` parameter
-
-Every `setup`, `teardown`, and `globalSetup` callback receives a `ctx` parameter. This is **whatever object you pass** to `useScreenshotDeepLink({ ctx, router })` — snapscene just forwards it through. There's no magic registration; you control what it is.
-
-For most apps, `ctx` is your Redux store, which lets setup callbacks dispatch actions:
-
-```tsx
-// In your root layout (step 2 below):
-useScreenshotDeepLink({ ctx: store, router });
-//                       ^^^^^^^^^^^
-//                       This exact object becomes `ctx` in all callbacks
-
-// In your scenario setup (step 1 below):
-setup: ({ ctx }) => {
-  ctx.dispatch(loadGameState()); // ctx IS store — you can dispatch, getState(), etc.
-};
+```bash
+bun add snapscene
+# or
+npm install snapscene
+# or
+yarn add snapscene
 ```
 
-The generic type parameter `<Store>` gives you type safety:
+> **Note:** The app-side hooks work with any bundler (Metro, etc.), but the CLI runner requires [Bun](https://bun.sh).
 
-```ts
-configure<Store>({ ... });                        // ctx is typed as Store
-registerScreenshotScenario<Store>("home", { ... }); // same
-```
+## Quick start
 
-If you don't use Redux, `ctx` can be anything — a Zustand store, a plain object with helper methods, or even `null` if your setup doesn't need app state.
+There are three pieces to wire up: **scenarios**, a **deep link hook** in your root layout, and optional **readiness signals** in individual screens.
 
-### Step 1: Define your scenarios
-
-Create a file that registers all your screenshot scenarios. This file runs as a side-effect import — it just calls `configure()` and `registerScreenshotScenario()` at module scope.
+### 1. Define your scenarios
 
 ```ts
 // screenshots.ts
 import { registerScreenshotScenario, configure } from "snapscene";
 import type { Store } from "@reduxjs/toolkit";
 
-// configure() sets up global behavior that runs for EVERY scenario.
 configure<Store>({
   globalSetup: async ({ ctx, params }) => {
-    // `ctx` is your Redux store (passed via useScreenshotDeepLink in step 2)
-    // `params` contains matrix values from the runner (e.g. params.locale)
     if (params.locale) ctx.dispatch(setLanguage(params.locale));
     ctx.dispatch(loadMockPlayers());
     ctx.dispatch(simulatePurchase());
   },
 });
 
-// Each scenario maps a name to a route + optional setup/teardown.
 registerScreenshotScenario<Store>("home", {
   route: "/home",
-  doneAfter: 3000, // static screen — auto-capture after 3s, no need for done()
+  doneAfter: 3000, // static screen — auto-capture after 3s
 });
 
 registerScreenshotScenario<Store>("game", {
   route: "/game",
   setup: ({ ctx }) => {
-    // Scenario-specific setup runs AFTER globalSetup, BEFORE navigation
     ctx.dispatch(loadGameState({ level: 3 }));
   },
-  // This screen calls done() manually (see step 3)
+  // this screen calls done() manually (see step 3)
 });
 
 registerScreenshotScenario<Store>("settings", {
@@ -115,16 +104,7 @@ registerScreenshotScenario<Store>("settings", {
 });
 ```
 
-### Step 2: Add the deep link hook to your root layout
-
-`useScreenshotDeepLink` listens for incoming deep links via Expo's `useURL()` hook. When a screenshot deep link arrives, it:
-
-1. Validates the password (if configured)
-2. Calls `globalSetup()` then `scenario.setup()` — this is where `ctx` gets used
-3. Waits for `navigationDelay` (default 2s)
-4. Navigates to the scenario's route via `router.replace()`
-
-The hook needs two things: access to `useRouter()` (so it must be inside the navigation tree) and your app context (the Redux store, passed as `ctx`).
+### 2. Add the deep link hook
 
 ```tsx
 // app/_layout.tsx
@@ -132,10 +112,7 @@ import { useRouter } from "expo-router";
 import { Stack } from "expo-router";
 import { store, Provider } from "./store";
 import { useScreenshotDeepLink } from "snapscene";
-
-// Side-effect import — registers all scenarios defined in step 1.
-// Must be imported before the component renders.
-import "../screenshots";
+import "../screenshots"; // side-effect import — registers scenarios
 
 export default function RootLayout() {
   return (
@@ -146,7 +123,6 @@ export default function RootLayout() {
         <Stack.Screen name="game" />
         <Stack.Screen name="settings" />
       </Stack>
-      {/* Rendered as a child of Stack so it has access to useRouter() */}
       <ScreenshotHandler />
     </Provider>
   );
@@ -154,39 +130,16 @@ export default function RootLayout() {
 
 function ScreenshotHandler() {
   const router = useRouter();
-
-  // `store` is your Redux store — it becomes `ctx` in all setup/teardown callbacks.
-  // `router` is used to navigate to scenario routes.
   useScreenshotDeepLink({ ctx: store, router });
-
-  return null; // this component renders nothing — it only runs the hook
-}
-```
-
-**Why a separate component?** `useScreenshotDeepLink` uses `useURL()` internally, which requires a navigation context. Your root layout _creates_ the `<Stack>`, so the hook can't be called directly in `RootLayout` — it needs to be in a component that renders _inside_ the stack. The `ScreenshotHandler` pattern is just a React idiom for "run this hook inside this context tree."
-
-In a real app, you likely already have a component like this for other effects (analytics, auth redirects, etc.) — the hook can go there too:
-
-```tsx
-function AppEffects() {
-  const router = useRouter();
-  const posthog = usePostHog();
-
-  // Screenshot deep link handling
-  useScreenshotDeepLink({ ctx: store, router });
-
-  // Your other effects...
-  useEffect(() => {
-    posthog.capture("app_opened");
-  }, []);
-
   return null;
 }
 ```
 
-### Step 3: Signal readiness from screens (optional)
+**Why a separate component?** `useScreenshotDeepLink` calls `useURL()` internally, which needs a navigation context. Your root layout _creates_ the `<Stack>`, so the hook must be in a component that renders _inside_ it. If you already have an `AppEffects` component for analytics/auth, the hook can go there.
 
-For screens with async content (data fetching, animations), use the `useScreenshot` hook to tell the runner when the screen is visually ready:
+### 3. Signal readiness from screens (optional)
+
+For screens with async content, use `useScreenshot` to tell the runner when the screen is visually ready:
 
 ```tsx
 // screens/Game.tsx
@@ -201,7 +154,6 @@ export function GameScreen() {
     fetchGameData().then(() => setDataLoaded(true));
   }, []);
 
-  // Signal readiness once data is loaded (only during screenshot mode)
   useEffect(() => {
     if (isScreenshot && dataLoaded) done();
   }, [isScreenshot, dataLoaded, done]);
@@ -211,20 +163,19 @@ export function GameScreen() {
 }
 ```
 
-For static screens that don't need to wait for anything, skip this step and use `doneAfter` in the scenario definition instead (see step 1).
+For static screens, skip this and use `doneAfter` in the scenario definition instead.
 
-You can also use `getScreenshotState()` outside of React (in Redux reducers, utility functions, etc.) to check if screenshot mode is active:
+You can also check screenshot state outside React:
 
 ```ts
 import { getScreenshotState } from "snapscene";
 
-// In a Redux reducer or any non-React code
 if (getScreenshotState().active) {
-  // Skip reset logic, hide modals, etc.
+  // skip reset logic, hide modals, etc.
 }
 ```
 
-### Step 4: Create a runner config file
+### 4. Create a runner config
 
 ```json
 {
@@ -251,57 +202,46 @@ if (getScreenshotState().active) {
 }
 ```
 
-**What each field does:**
-
-- **`$schema`** — Points to the JSON schema for editor autocompletion and validation.
-- **`scheme`** *(required)* — Your app's URL scheme (e.g. `"myapp"` produces `myapp://home?screenshotParams=...`).
-- **`homeRoute`** — Deep link path the runner opens (default: `"index"`). This is the route that receives the screenshot deep link — typically your app's entry point.
-- **`scenarios`** *(required)* — Array of scenario names or objects. Each object can have `name`, `filePrefix` (for sorted filenames like `01-home.png`), `params` (extra params merged into the deep link), and `timeout` (override per scenario).
-- **`matrix`** — Cartesian product of param variations. Every scenario is captured for every combination. Each key becomes a subfolder in the output and is passed as a param to `globalSetup`. Example: 3 scenarios × 4 locales = 12 screenshots per device.
-- **`devices`** — Simulator names, fuzzy matched against available simulators. Can be strings or objects with `name` and `extraWait` (extra delay in ms after each screenshot on slower devices like iPads).
-- **`bundleId`** — Your app's bundle ID. Required when `killBetweenPermutations` is `true`.
-- **`outputDir`** — Where screenshots are written (default: `/tmp/snapscene`).
-- **`copyTo`** — Copy the final output to this directory after completion. Useful for keeping screenshots in your repo.
-- **`killBetweenPermutations`** — Kill and relaunch the app between matrix permutation changes (default: `true`). Set to `false` to keep the app running and re-run `globalSetup` via a special deep link instead — much faster but requires your `globalSetup` to handle state transitions cleanly.
-- **`waitAfterPermutationChange`** — Extra delay in ms after `globalSetup` re-runs on permutation change (default: `0`). Useful when async side-effects need time to settle (e.g. React Query refetches after a locale change).
-- **`captureDelay`** — Delay in ms after `done()` / `doneAfter` before taking the screenshot (default: `200`). Increase if animations need time to settle.
-- **`password`** — Shared secret for deep link validation. Must match the password set in `configure()` on the app side. See [Password protection](#password-protection).
-- **`globalParams`** — Extra params sent with every scenario deep link. Merged into `params` in your setup callbacks.
-
-### Step 5: Run
+### 5. Run
 
 ```bash
-# Run all scenarios on all devices and locales
 bunx snapscene screenshots.config.json
 
-# Run specific scenarios only
+# specific scenarios only
 bunx snapscene screenshots.config.json --screen home,game
 
-# Run for specific locales only
+# specific locales only
 bunx snapscene screenshots.config.json --locale en,de
 
-# Verbose logging (also enables debug logs in the app)
+# verbose logging
 bunx snapscene screenshots.config.json --debug
 ```
 
-Output:
+## The `ctx` parameter
 
-```
-screenshots/
-  iphone-16-pro-max/
-    en/
-      01-home.png
-      02-game.png
-      03-settings.png
-    de/
-      01-home.png
-      ...
-  ipad-pro-13-inch-m4/
-    en/
-      ...
+Every `setup`, `teardown`, and `globalSetup` callback receives a `ctx` parameter. This is **whatever object you pass** to `useScreenshotDeepLink({ ctx, router })` — snapscene just forwards it.
+
+For most apps, `ctx` is your Redux store:
+
+```tsx
+useScreenshotDeepLink({ ctx: store, router });
+
+// In your scenario:
+setup: ({ ctx }) => {
+  ctx.dispatch(loadGameState()); // ctx IS store
+};
 ```
 
-## API reference
+The generic type parameter gives you type safety:
+
+```ts
+configure<Store>({ ... });
+registerScreenshotScenario<Store>("home", { ... });
+```
+
+If you don't use Redux, `ctx` can be anything — a Zustand store, a plain object, or `null`.
+
+## Reference
 
 ### App-side exports
 
@@ -334,54 +274,21 @@ interface ScreenshotContext<TContext> {
 
 ### Runner config
 
-| Option                       | Default          | Description                                                                              |
-| ---------------------------- | ---------------- | ---------------------------------------------------------------------------------------- |
-| `scheme`                     | (required)       | URL scheme for deep links                                                                |
-| `homeRoute`                  | `"index"`        | Deep link path to open (produces `scheme://homeRoute?screenshotParams=...`)              |
-| `scenarios`                  | (required)       | Array of scenario names or `{ name, filePrefix, params, timeout }`                       |
-| `matrix`                     | `{}`             | Cartesian product of param variations (each key = subfolder)                             |
-| `devices`                    | `[]`             | Simulator names or `{ name, extraWait }` (fuzzy matched against available simulators)    |
-| `globalParams`               | `{}`             | Extra params sent with every scenario deep link                                          |
-| `outputDir`                  | `/tmp/snapscene` | Where screenshots are written                                                            |
-| `copyTo`                     | -                | Copy final output to this directory                                                      |
-| `bundleId`                   | -                | App bundle ID (needed for `killBetweenPermutations`)                                     |
-| `killBetweenPermutations`    | `true`           | Kill and relaunch app between matrix permutation changes                                 |
-| `waitAfterPermutationChange` | `0`              | Extra delay (ms) after globalSetup re-runs on permutation change                         |
-| `captureDelay`               | `200`            | Delay (ms) before capture after `done()` / `doneAfter`, for animations to settle         |
-| `password`                   | -                | Shared secret for deep link validation (see below)                                       |
-
-### Permutation changes
-
-When `killBetweenPermutations` is `false` and the matrix changes (e.g. switching from `locale: "en"` to `locale: "de"`), the runner sends a special deep link that re-runs your `globalSetup` with the new params. This lets you dispatch actions like loading a new language, switching themes, etc. The runner waits for `globalSetup` to complete before starting scenarios.
-
-If your app also needs time for async side-effects after `globalSetup` (e.g. React Query refetches triggered by a locale change), set `waitAfterPermutationChange` to add an extra delay after the setup completes.
-
-When `killBetweenPermutations` is `true` (the default), the app is killed and relaunched for each permutation, so `globalSetup` runs naturally on the first scenario's deep link.
-
-### Password protection
-
-Screenshot setup callbacks often grant elevated access — simulating in-app purchases, unlocking premium content, loading mock data. Without a password, anyone who knows your URL scheme could craft a deep link that triggers this setup on a real device, effectively bypassing your paywall.
-
-Set a shared password in both `configure()` and the runner config:
-
-```ts
-// screenshots.ts
-configure<Store>({
-  password: "s3cret",
-  globalSetup: ({ ctx }) => {
-    ctx.dispatch(simulateIAP()); // unlocks all premium content
-  },
-});
-```
-
-```json
-// screenshots.config.json
-{
-  "password": "s3cret"
-}
-```
-
-The runner includes the password in the deep link query string. The app-side hook rejects any deep link where the password doesn't match, so the setup callbacks never run.
+| Option                       | Default          | Description                                                                           |
+| ---------------------------- | ---------------- | ------------------------------------------------------------------------------------- |
+| `scheme`                     | (required)       | URL scheme for deep links                                                             |
+| `homeRoute`                  | `"index"`        | Deep link path to open                                                                |
+| `scenarios`                  | (required)       | Array of scenario names or `{ name, filePrefix, params, timeout }`                    |
+| `matrix`                     | `{}`             | Cartesian product of param variations (each key = subfolder)                          |
+| `devices`                    | `[]`             | Simulator names or `{ name, extraWait }` (fuzzy matched)                              |
+| `globalParams`               | `{}`             | Extra params sent with every scenario deep link                                       |
+| `outputDir`                  | `/tmp/snapscene` | Where screenshots are written                                                         |
+| `copyTo`                     | -                | Copy final output to this directory                                                   |
+| `bundleId`                   | -                | App bundle ID (needed for `killBetweenPermutations`)                                  |
+| `killBetweenPermutations`    | `true`           | Kill and relaunch app between matrix permutation changes                              |
+| `waitAfterPermutationChange` | `0`              | Extra delay (ms) after globalSetup re-runs on permutation change                      |
+| `captureDelay`               | `200`            | Delay (ms) before capture after `done()` / `doneAfter`                                |
+| `password`                   | -                | Shared secret for deep link validation                                                |
 
 ### CLI flags
 
@@ -393,3 +300,32 @@ bunx snapscene <config.json> [options]
   --device "iPhone 16" Only run on these devices (comma-separated)
   --<matrix-key> val   Override matrix values (e.g. --locale en,de)
 ```
+
+### Permutation changes
+
+When `killBetweenPermutations` is `false` and the matrix changes (e.g. switching from `locale: "en"` to `locale: "de"`), the runner sends a special deep link that re-runs your `globalSetup` with the new params. Set `waitAfterPermutationChange` if async side-effects need time to settle.
+
+When `killBetweenPermutations` is `true` (the default), the app is killed and relaunched for each permutation.
+
+### Password protection
+
+Screenshot setup callbacks often grant elevated access — simulating purchases, unlocking premium content. Without a password, anyone who knows your URL scheme could trigger this on a real device.
+
+Set a shared password in both `configure()` and the runner config:
+
+```ts
+configure<Store>({
+  password: "s3cret",
+  globalSetup: ({ ctx }) => {
+    ctx.dispatch(simulateIAP());
+  },
+});
+```
+
+```json
+{
+  "password": "s3cret"
+}
+```
+
+The runner includes the password in the deep link. The app-side hook rejects any deep link where the password doesn't match.
